@@ -172,7 +172,7 @@ class private_key
   void set_password(const std::string& password);
 
  private:
-  RSA* rsa_ = nullptr;    // 底层 OpenSSL RSA 对象
+  RSA* rsa_ = nullptr;    // 底层 OpenSSL RSA 对象   // TODO: 后续使用智能指针管理
   std::string password_;  // PEM 导出加密密码
 };
 
