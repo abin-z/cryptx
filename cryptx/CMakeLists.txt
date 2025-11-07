@@ -10,3 +10,8 @@ add_library(${tgt_name} ${HEADERS} ${SOURCES})
 # 添加头文件路径
 target_include_directories(${tgt_name} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>)
 
+# 查找 OpenSSL
+find_package(OpenSSL REQUIRED)
+
+# 链接 OpenSSL
+target_link_libraries(${tgt_name} PUBLIC OpenSSL::Crypto)
