@@ -8,6 +8,7 @@
 #include <openssl/sha.h>
 
 #include <cstring>
+#include <memory>
 #include <sstream>
 
 namespace cryptx
@@ -39,12 +40,32 @@ const EVP_MD* get_oaep_md(cryptx::rsa::oaep_hash hash_alg)
 
 public_key::public_key(const std::string& pem)
 {
-  BIO* bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+  /*
+   * 使用 std::unique_ptr 管理 OpenSSL 资源的原因：
+   *
+   * 1. 自动释放（RAII）
+   *    - 智能指针会在超出作用域时自动调用释放函数（如 RSA_free、EVP_PKEY_free 等），
+   *      避免手动释放遗漏导致的内存泄漏。
+   *
+   * 2. 异常安全
+   *    - 即使函数中途抛出异常，智能指针也会保证资源被释放，不需要在每个异常分支重复写 free。
+   *
+   * 3. 防止 double free
+   *    - 智能指针只会释放一次底层资源，避免重复释放导致程序崩溃。
+   *
+   * 4. 可读性与可维护性
+   *    - 省去大量重复的释放代码，代码更简洁、清晰。
+   *
+   * 5. 现代 C++ 风格
+   *    - 符合 C++11 RAII 风格，安全、高效、易于维护。
+   *
+   * 示例：
+   *   std::unique_ptr<RSA, decltype(&RSA_free)> rsa(RSA_new(), &RSA_free);
+   *   std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new_mem_buf(data, len), &BIO_free);
+   */
+  std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())), &BIO_free);
   if (!bio) throw rsa_exception("BIO allocation failed");
-
-  rsa_.reset(PEM_read_bio_RSA_PUBKEY(bio, nullptr, nullptr, nullptr));
-  BIO_free(bio);
-
+  rsa_.reset(PEM_read_bio_RSA_PUBKEY(bio.get(), nullptr, nullptr, nullptr));
   if (!rsa_) throw rsa_exception("Failed to load RSA public key");
 }
 
@@ -172,19 +193,17 @@ std::string public_key::pem() const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
 
-  BIO* bio = BIO_new(BIO_s_mem());
+  std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new(BIO_s_mem()), &BIO_free);
   if (!bio) throw rsa_exception("BIO allocation failed");
 
-  if (!PEM_write_bio_RSA_PUBKEY(bio, rsa_.get()))
+  if (!PEM_write_bio_RSA_PUBKEY(bio.get(), rsa_.get()))
   {
-    BIO_free(bio);
     throw rsa_exception("Failed to write RSA public key PEM");
   }
 
   char* data = nullptr;
-  long len = BIO_get_mem_data(bio, &data);
+  long len = BIO_get_mem_data(bio.get(), &data);
   std::string pem_str(data, len);
-  BIO_free(bio);
   return pem_str;
 }
 
@@ -194,33 +213,27 @@ private_key::private_key(bits bits, const std::string& password) :
   rsa_(RSA_new(), &RSA_free), password_(password)  // 初始化 unique_ptr
 {
   if (!rsa_) throw rsa_exception("RSA allocation failed");
-
-  BIGNUM* e = BN_new();
+  // 使用 unique_ptr 管理 BIGNUM
+  std::unique_ptr<BIGNUM, decltype(&BN_free)> e(BN_new(), &BN_free);
   if (!e) throw rsa_exception("BIGNUM allocation failed");
-  BN_set_word(e, RSA_F4);
 
-  if (!RSA_generate_key_ex(rsa_.get(), static_cast<int>(bits), e, nullptr))
+  BN_set_word(e.get(), RSA_F4);
+  if (!RSA_generate_key_ex(rsa_.get(), static_cast<int>(bits), e.get(), nullptr))
   {
-    BN_free(e);
     throw rsa_exception("RSA key generation failed");
   }
-
-  BN_free(e);
 }
 
 private_key::private_key(const std::string& pem, const std::string& password) : password_(password)
 {
   if (pem.empty()) throw rsa_exception("Empty PEM string");
-
-  // 用 unique_ptr 管理 BIO，异常安全
+  // 用 unique_ptr 管理 BIO
   std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())), &BIO_free);
-
   if (!bio) throw rsa_exception("BIO allocation failed");
 
   // 读取私钥
   rsa_.reset(
     PEM_read_bio_RSAPrivateKey(bio.get(), nullptr, nullptr, password.empty() ? nullptr : (void*)password.c_str()));
-
   if (!rsa_) throw rsa_exception("Failed to load RSA private key");
 }
 
@@ -361,8 +374,8 @@ std::string private_key::pem(pem_format fmt) const
 
   if (fmt == pem_format::PKCS1)
   {
-    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_.get(), password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
-                                     password_.empty() ? nullptr : (void*)password_.c_str()))
+    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_.get(), password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0,
+                                     nullptr, password_.empty() ? nullptr : (void*)password_.c_str()))
     {
       BIO_free(bio);
       throw rsa_exception("Failed to write PKCS1 private key PEM");
@@ -409,17 +422,19 @@ public_key private_key::get_public() const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
-  RSA* rsa_pub = RSAPublicKey_dup(rsa_.get());
+  // 用 unique_ptr 管理 rsa_pub
+  std::unique_ptr<RSA, decltype(&RSA_free)> rsa_pub(RSAPublicKey_dup(rsa_.get()), &RSA_free);
   if (!rsa_pub) throw rsa_exception("Failed to duplicate RSA public key");
 
-  BIO* bio = BIO_new(BIO_s_mem());
-  PEM_write_bio_RSA_PUBKEY(bio, rsa_pub);
-  RSA_free(rsa_pub);
+  // 用 unique_ptr 管理 BIO
+  std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new(BIO_s_mem()), &BIO_free);
+  if (!bio) throw rsa_exception("BIO allocation failed");
+
+  if (!PEM_write_bio_RSA_PUBKEY(bio.get(), rsa_pub.get())) throw rsa_exception("Failed to write RSA public key PEM");
 
   char* data = nullptr;
-  long len = BIO_get_mem_data(bio, &data);
+  long len = BIO_get_mem_data(bio.get(), &data);
   std::string pem_str(data, len);
-  BIO_free(bio);
 
   return public_key(pem_str);
 }
