@@ -25,19 +25,19 @@ int main()
     std::vector<unsigned char> plaintext(msg.begin(), msg.end());
 
     // 公钥加密
-    std::vector<unsigned char> ciphertext = pub2.encrypt(plaintext, cryptx::rsa::oaep_hash::SHA256);
+    std::vector<unsigned char> ciphertext = pub2.encrypt(plaintext);
 
     // 私钥解密
-    std::vector<unsigned char> decrypted = priv2.decrypt(ciphertext, cryptx::rsa::oaep_hash::SHA256);
+    std::vector<unsigned char> decrypted = priv2.decrypt(ciphertext);
 
     std::string recovered(decrypted.begin(), decrypted.end());
     assert(recovered == msg);
     std::cout << "Encrypt/Decrypt test passed: " << recovered << std::endl;
 
     // 4. 测试签名/验签
-    std::vector<unsigned char> signature = priv2.sign(plaintext, cryptx::rsa::hash::SHA256);
+    std::vector<unsigned char> signature = priv2.sign(plaintext);
 
-    bool ok = pub2.verify(plaintext, signature, cryptx::rsa::hash::SHA256);
+    bool ok = pub2.verify(plaintext, signature);
     assert(ok);
     std::cout << "Sign/Verify test passed" << std::endl;
 
