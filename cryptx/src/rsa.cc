@@ -37,12 +37,12 @@ const EVP_MD* get_oaep_md(cryptx::rsa::oaep_hash hash_alg)
 
 // ------------------------ public_key ------------------------
 
-public_key::public_key(const std::string& pem) : rsa_(nullptr)
+public_key::public_key(const std::string& pem)
 {
   BIO* bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
   if (!bio) throw rsa_exception("BIO allocation failed");
 
-  rsa_ = PEM_read_bio_RSA_PUBKEY(bio, nullptr, nullptr, nullptr);
+  rsa_.reset(PEM_read_bio_RSA_PUBKEY(bio, nullptr, nullptr, nullptr));
   BIO_free(bio);
 
   if (!rsa_) throw rsa_exception("Failed to load RSA public key");
@@ -57,11 +57,6 @@ public_key::public_key(std::istream& is) :
 {
 }
 
-public_key::~public_key()
-{
-  if (rsa_) RSA_free(rsa_);
-}
-
 // 公钥加密 OAEP，可选 hash
 std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext, oaep_hash hash_alg) const
 {
@@ -69,7 +64,7 @@ std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>&
 
   EVP_PKEY* pkey = EVP_PKEY_new();
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
   {
     EVP_PKEY_free(pkey);
     throw rsa_exception("EVP_PKEY_set1_RSA failed");
@@ -139,7 +134,7 @@ bool public_key::verify(const std::vector<unsigned char>& message, const std::ve
 
   EVP_PKEY* pkey = EVP_PKEY_new();
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
   {
     EVP_PKEY_free(pkey);
     throw rsa_exception("EVP_PKEY_set1_RSA failed");
@@ -180,7 +175,7 @@ std::string public_key::pem() const
   BIO* bio = BIO_new(BIO_s_mem());
   if (!bio) throw rsa_exception("BIO allocation failed");
 
-  if (!PEM_write_bio_RSA_PUBKEY(bio, rsa_))
+  if (!PEM_write_bio_RSA_PUBKEY(bio, rsa_.get()))
   {
     BIO_free(bio);
     throw rsa_exception("Failed to write RSA public key PEM");
@@ -195,27 +190,36 @@ std::string public_key::pem() const
 
 // ------------------------ private_key ------------------------
 
-private_key::private_key(bits bits, const std::string& password) : rsa_(nullptr), password_(password)
+private_key::private_key(bits bits, const std::string& password) :
+  rsa_(RSA_new(), &RSA_free), password_(password)  // 初始化 unique_ptr
 {
-  rsa_ = RSA_new();
+  if (!rsa_) throw rsa_exception("RSA allocation failed");
+
   BIGNUM* e = BN_new();
+  if (!e) throw rsa_exception("BIGNUM allocation failed");
   BN_set_word(e, RSA_F4);
-  if (!RSA_generate_key_ex(rsa_, static_cast<int>(bits), e, nullptr))
+
+  if (!RSA_generate_key_ex(rsa_.get(), static_cast<int>(bits), e, nullptr))
   {
     BN_free(e);
-    RSA_free(rsa_);
     throw rsa_exception("RSA key generation failed");
   }
+
   BN_free(e);
 }
 
-private_key::private_key(const std::string& pem, const std::string& password) : rsa_(nullptr), password_(password)
+private_key::private_key(const std::string& pem, const std::string& password) : password_(password)
 {
-  BIO* bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+  if (pem.empty()) throw rsa_exception("Empty PEM string");
+
+  // 用 unique_ptr 管理 BIO，异常安全
+  std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size())), &BIO_free);
+
   if (!bio) throw rsa_exception("BIO allocation failed");
 
-  rsa_ = PEM_read_bio_RSAPrivateKey(bio, nullptr, nullptr, password.empty() ? nullptr : (void*)password.c_str());
-  BIO_free(bio);
+  // 读取私钥
+  rsa_.reset(
+    PEM_read_bio_RSAPrivateKey(bio.get(), nullptr, nullptr, password.empty() ? nullptr : (void*)password.c_str()));
 
   if (!rsa_) throw rsa_exception("Failed to load RSA private key");
 }
@@ -231,11 +235,6 @@ private_key::private_key(std::istream& is, const std::string& password) :
 {
 }
 
-private_key::~private_key()
-{
-  if (rsa_) RSA_free(rsa_);
-}
-
 // 私钥解密 OAEP
 std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext, oaep_hash hash_alg) const
 {
@@ -243,7 +242,7 @@ std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>
 
   EVP_PKEY* pkey = EVP_PKEY_new();
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
   {
     EVP_PKEY_free(pkey);
     throw rsa_exception("EVP_PKEY_set1_RSA failed");
@@ -310,7 +309,7 @@ std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& m
 
   EVP_PKEY* pkey = EVP_PKEY_new();
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
   {
     EVP_PKEY_free(pkey);
     throw rsa_exception("EVP_PKEY_set1_RSA failed");
@@ -362,7 +361,7 @@ std::string private_key::pem(pem_format fmt) const
 
   if (fmt == pem_format::PKCS1)
   {
-    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_, password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
+    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_.get(), password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
                                      password_.empty() ? nullptr : (void*)password_.c_str()))
     {
       BIO_free(bio);
@@ -377,7 +376,7 @@ std::string private_key::pem(pem_format fmt) const
       BIO_free(bio);
       throw rsa_exception("EVP_PKEY allocation failed");
     }
-    if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+    if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
     {
       EVP_PKEY_free(pkey);
       BIO_free(bio);
@@ -410,7 +409,7 @@ public_key private_key::get_public() const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
-  RSA* rsa_pub = RSAPublicKey_dup(rsa_);
+  RSA* rsa_pub = RSAPublicKey_dup(rsa_.get());
   if (!rsa_pub) throw rsa_exception("Failed to duplicate RSA public key");
 
   BIO* bio = BIO_new(BIO_s_mem());

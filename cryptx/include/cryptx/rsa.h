@@ -5,6 +5,7 @@
 #include <openssl/rsa.h>
 
 #include <istream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -67,8 +68,15 @@ class public_key
   // 构造函数：从输入流加载公钥
   explicit public_key(std::istream& is);
 
-  // 析构函数：释放底层 RSA 资源
-  ~public_key();
+  // 移动构造和赋值
+  public_key(public_key&&) noexcept = default;
+  public_key& operator=(public_key&&) noexcept = default;
+
+  // 禁止拷贝
+  public_key(const public_key&) = delete;
+  public_key& operator=(const public_key&) = delete;
+
+  ~public_key() = default;  // unique_ptr 会自动释放
 
   /**
    * @brief 公钥加密
@@ -97,7 +105,7 @@ class public_key
   std::string pem() const;
 
  private:
-  RSA* rsa_ = nullptr;  // 底层 OpenSSL RSA 对象
+  std::unique_ptr<RSA, decltype(&RSA_free)> rsa_{nullptr, &RSA_free};
 };
 
 // ------------------------ 私钥类 ------------------------
@@ -125,8 +133,15 @@ class private_key
    */
   explicit private_key(std::istream& is, const std::string& password = "");
 
-  // 析构函数：释放底层 RSA 资源
-  ~private_key();
+  // 移动构造和赋值
+  private_key(private_key&&) noexcept = default;
+  private_key& operator=(private_key&&) noexcept = default;
+
+  // 禁止拷贝
+  private_key(const private_key&) = delete;
+  private_key& operator=(const private_key&) = delete;
+
+  ~private_key() = default;  // unique_ptr 会自动释放
 
   /**
    * @brief 私钥解密
@@ -172,8 +187,8 @@ class private_key
   void set_password(const std::string& password);
 
  private:
-  RSA* rsa_ = nullptr;    // 底层 OpenSSL RSA 对象   // TODO: 后续使用智能指针管理
-  std::string password_;  // PEM 导出加密密码
+  std::unique_ptr<RSA, decltype(&RSA_free)> rsa_{nullptr, &RSA_free};  // 底层 OpenSSL RSA 对象
+  std::string password_;                                               // PEM 导出加密密码
 };
 
 }  // namespace rsa
