@@ -1,0 +1,7 @@
+[submodule "3rd/fmt"]
+	path = 3rd/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "3rd/catch2_v2"]
+	path = 3rd/catch2_v2
+	url = https://github.com/catchorg/Catch2.git
+	branch = v2.x
