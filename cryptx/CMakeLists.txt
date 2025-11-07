@@ -15,3 +15,7 @@ find_package(OpenSSL REQUIRED)
 
 # 链接 OpenSSL
 target_link_libraries(${tgt_name} PUBLIC OpenSSL::Crypto)
+
+# ================================
+# 定义宏，让高版本 OpenSSL 不触发弃用警告
+target_compile_definitions(${tgt_name} PRIVATE OPENSSL_SUPPRESS_DEPRECATED)
