@@ -1,7 +1,10 @@
 #include "cryptx/rsa.h"
 
 #include <openssl/bn.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
 #include <openssl/sha.h>
 
 #include <cstring>
@@ -11,6 +14,26 @@ namespace cryptx
 {
 namespace rsa
 {
+
+namespace
+{
+const EVP_MD* get_oaep_md(cryptx::rsa::oaep_hash hash_alg)
+{
+  switch (hash_alg)
+  {
+  case cryptx::rsa::oaep_hash::SHA1:
+    return EVP_sha1();
+  case cryptx::rsa::oaep_hash::SHA256:
+    return EVP_sha256();
+  case cryptx::rsa::oaep_hash::SHA384:
+    return EVP_sha384();
+  case cryptx::rsa::oaep_hash::SHA512:
+    return EVP_sha512();
+  default:
+    throw cryptx::rsa::rsa_exception("Unsupported OAEP hash algorithm");
+  }
+}
+}  // namespace
 
 // ------------------------ public_key ------------------------
 
@@ -39,25 +62,76 @@ public_key::~public_key()
   if (rsa_) RSA_free(rsa_);
 }
 
-// 固定使用 RSA-OAEP
-std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext) const
+// 公钥加密 OAEP，可选 hash
+std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext, oaep_hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
 
-  int rsa_size = RSA_size(rsa_);
-  std::vector<unsigned char> out(rsa_size);
+  EVP_PKEY* pkey = EVP_PKEY_new();
+  if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
+  if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+  {
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_set1_RSA failed");
+  }
 
-  int len =
-    RSA_public_encrypt(static_cast<int>(plaintext.size()), plaintext.data(), out.data(), rsa_, RSA_PKCS1_OAEP_PADDING);
+  EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
+  if (!ctx)
+  {
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_CTX allocation failed");
+  }
 
-  if (len < 0) throw rsa_exception("RSA encryption failed");
+  if (EVP_PKEY_encrypt_init(ctx) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_encrypt_init failed");
+  }
 
-  out.resize(len);
+  // 设置 OAEP padding
+  if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("Failed to set OAEP padding");
+  }
+
+  // 设置 OAEP hash
+  const EVP_MD* md = get_oaep_md(hash_alg);
+
+  if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0 || EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("Failed to set OAEP hash");
+  }
+
+  size_t outlen = 0;
+  if (EVP_PKEY_encrypt(ctx, nullptr, &outlen, plaintext.data(), plaintext.size()) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_encrypt size query failed");
+  }
+
+  std::vector<unsigned char> out(outlen);
+  if (EVP_PKEY_encrypt(ctx, out.data(), &outlen, plaintext.data(), plaintext.size()) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_encrypt failed");
+  }
+  out.resize(outlen);
+
+  EVP_PKEY_CTX_free(ctx);
+  EVP_PKEY_free(pkey);
   return out;
 }
 
+// 验签 PSS
 bool public_key::verify(const std::vector<unsigned char>& message, const std::vector<unsigned char>& signature,
-                        rsa::hash hash_alg) const
+                        hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
 
@@ -114,26 +188,24 @@ std::string public_key::pem() const
 
   char* data = nullptr;
   long len = BIO_get_mem_data(bio, &data);
-  std::string pem(data, len);
+  std::string pem_str(data, len);
   BIO_free(bio);
-  return pem;
+  return pem_str;
 }
 
 // ------------------------ private_key ------------------------
 
-private_key::private_key(rsa::bits bits, const std::string& password) : rsa_(nullptr), password_(password)
+private_key::private_key(bits bits, const std::string& password) : rsa_(nullptr), password_(password)
 {
   rsa_ = RSA_new();
   BIGNUM* e = BN_new();
   BN_set_word(e, RSA_F4);
-
   if (!RSA_generate_key_ex(rsa_, static_cast<int>(bits), e, nullptr))
   {
     BN_free(e);
     RSA_free(rsa_);
     throw rsa_exception("RSA key generation failed");
   }
-
   BN_free(e);
 }
 
@@ -164,24 +236,73 @@ private_key::~private_key()
   if (rsa_) RSA_free(rsa_);
 }
 
-// 固定使用 RSA-OAEP
-std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext) const
+// 私钥解密 OAEP
+std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext, oaep_hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
-  int rsa_size = RSA_size(rsa_);
-  std::vector<unsigned char> out(rsa_size);
+  EVP_PKEY* pkey = EVP_PKEY_new();
+  if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
+  if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+  {
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_set1_RSA failed");
+  }
 
-  int len = RSA_private_decrypt(static_cast<int>(ciphertext.size()), ciphertext.data(), out.data(), rsa_,
-                                RSA_PKCS1_OAEP_PADDING);
+  EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
+  if (!ctx)
+  {
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_CTX allocation failed");
+  }
 
-  if (len < 0) throw rsa_exception("RSA decryption failed");
+  if (EVP_PKEY_decrypt_init(ctx) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_decrypt_init failed");
+  }
 
-  out.resize(len);
+  if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("Failed to set OAEP padding");
+  }
+
+  const EVP_MD* md = get_oaep_md(hash_alg);
+
+  if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0 || EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("Failed to set OAEP hash");
+  }
+
+  size_t outlen = 0;
+  if (EVP_PKEY_decrypt(ctx, nullptr, &outlen, ciphertext.data(), ciphertext.size()) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_decrypt size query failed");
+  }
+
+  std::vector<unsigned char> out(outlen);
+  if (EVP_PKEY_decrypt(ctx, out.data(), &outlen, ciphertext.data(), ciphertext.size()) <= 0)
+  {
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    throw rsa_exception("EVP_PKEY_decrypt failed");
+  }
+  out.resize(outlen);
+
+  EVP_PKEY_CTX_free(ctx);
+  EVP_PKEY_free(pkey);
   return out;
 }
 
-std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& message, rsa::hash hash_alg) const
+// 签名 PSS
+std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& message, hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
@@ -230,8 +351,9 @@ std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& m
   return sig;
 }
 
-// ------------------------ PKCS#8 / PKCS#1 PEM 导出 ------------------------
-std::string private_key::pem(pem_format fmt, bool encrypt) const
+// ------------------------ PEM 导出 ------------------------
+
+std::string private_key::pem(pem_format fmt) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
@@ -240,8 +362,8 @@ std::string private_key::pem(pem_format fmt, bool encrypt) const
 
   if (fmt == pem_format::PKCS1)
   {
-    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_, encrypt ? EVP_aes_256_cbc() : nullptr, nullptr, 0, nullptr,
-                                     encrypt ? (void*)password_.c_str() : nullptr))
+    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_, password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
+                                     password_.empty() ? nullptr : (void*)password_.c_str()))
     {
       BIO_free(bio);
       throw rsa_exception("Failed to write PKCS1 private key PEM");
@@ -262,23 +384,12 @@ std::string private_key::pem(pem_format fmt, bool encrypt) const
       throw rsa_exception("EVP_PKEY_set1_RSA failed");
     }
 
-    if (!encrypt)
+    if (!PEM_write_bio_PrivateKey(bio, pkey, password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
+                                  password_.empty() ? nullptr : (void*)password_.c_str()))
     {
-      if (!PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr))
-      {
-        EVP_PKEY_free(pkey);
-        BIO_free(bio);
-        throw rsa_exception("Failed to write PKCS8 private key PEM");
-      }
-    }
-    else
-    {
-      if (!PEM_write_bio_PrivateKey(bio, pkey, EVP_aes_256_cbc(), nullptr, 0, nullptr, (void*)password_.c_str()))
-      {
-        EVP_PKEY_free(pkey);
-        BIO_free(bio);
-        throw rsa_exception("Failed to write encrypted PKCS8 private key PEM");
-      }
+      EVP_PKEY_free(pkey);
+      BIO_free(bio);
+      throw rsa_exception("Failed to write PKCS8 private key PEM");
     }
     EVP_PKEY_free(pkey);
   }
