@@ -39,7 +39,7 @@ public_key::~public_key()
   if (rsa_) RSA_free(rsa_);
 }
 
-// 固定使用 RSA-OAEP（内部默认 SHA1）
+// 固定使用 RSA-OAEP
 std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
@@ -164,7 +164,7 @@ private_key::~private_key()
   if (rsa_) RSA_free(rsa_);
 }
 
-// 固定使用 RSA-OAEP（内部默认 SHA1）
+// 固定使用 RSA-OAEP
 std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
@@ -230,25 +230,64 @@ std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& m
   return sig;
 }
 
-std::string private_key::pem() const
+// ------------------------ PKCS#8 / PKCS#1 PEM 导出 ------------------------
+std::string private_key::pem(pem_format fmt, bool encrypt) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
   BIO* bio = BIO_new(BIO_s_mem());
   if (!bio) throw rsa_exception("BIO allocation failed");
 
-  if (!PEM_write_bio_RSAPrivateKey(bio, rsa_, password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
-                                   password_.empty() ? nullptr : (void*)password_.c_str()))
+  if (fmt == pem_format::PKCS1)
   {
-    BIO_free(bio);
-    throw rsa_exception("Failed to write RSA private key PEM");
+    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_, encrypt ? EVP_aes_256_cbc() : nullptr, nullptr, 0, nullptr,
+                                     encrypt ? (void*)password_.c_str() : nullptr))
+    {
+      BIO_free(bio);
+      throw rsa_exception("Failed to write PKCS1 private key PEM");
+    }
+  }
+  else  // PKCS8
+  {
+    EVP_PKEY* pkey = EVP_PKEY_new();
+    if (!pkey)
+    {
+      BIO_free(bio);
+      throw rsa_exception("EVP_PKEY allocation failed");
+    }
+    if (EVP_PKEY_set1_RSA(pkey, rsa_) != 1)
+    {
+      EVP_PKEY_free(pkey);
+      BIO_free(bio);
+      throw rsa_exception("EVP_PKEY_set1_RSA failed");
+    }
+
+    if (!encrypt)
+    {
+      if (!PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr))
+      {
+        EVP_PKEY_free(pkey);
+        BIO_free(bio);
+        throw rsa_exception("Failed to write PKCS8 private key PEM");
+      }
+    }
+    else
+    {
+      if (!PEM_write_bio_PrivateKey(bio, pkey, EVP_aes_256_cbc(), nullptr, 0, nullptr, (void*)password_.c_str()))
+      {
+        EVP_PKEY_free(pkey);
+        BIO_free(bio);
+        throw rsa_exception("Failed to write encrypted PKCS8 private key PEM");
+      }
+    }
+    EVP_PKEY_free(pkey);
   }
 
   char* data = nullptr;
   long len = BIO_get_mem_data(bio, &data);
-  std::string pem(data, len);
+  std::string pem_str(data, len);
   BIO_free(bio);
-  return pem;
+  return pem_str;
 }
 
 std::string private_key::public_pem() const
@@ -269,10 +308,10 @@ public_key private_key::get_public() const
 
   char* data = nullptr;
   long len = BIO_get_mem_data(bio, &data);
-  std::string pem(data, len);
+  std::string pem_str(data, len);
   BIO_free(bio);
 
-  return public_key(pem);
+  return public_key(pem_str);
 }
 
 void private_key::set_password(const std::string& password)

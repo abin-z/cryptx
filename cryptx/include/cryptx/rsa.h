@@ -22,11 +22,18 @@ enum class bits
   RSA_4096 = 4096
 };
 
-// hash 枚举保留，仅用于签名/验签时的 PSS 签名算法
+// hash 枚举保留，用于指定 PSS/OAEP 哈希算法
 enum class hash
 {
   SHA256,
   SHA512
+};
+
+// PEM 导出格式
+enum class pem_format
+{
+  PKCS1,  // BEGIN RSA PRIVATE KEY
+  PKCS8   // BEGIN PRIVATE KEY / ENCRYPTED PRIVATE KEY
 };
 
 class rsa_exception : public std::runtime_error
@@ -43,7 +50,7 @@ class public_key
   explicit public_key(std::istream& is);
   ~public_key();
 
-  // 加密：固定使用 RSA-OAEP（内部 hash 算法固定为 OpenSSL 默认）
+  // 加密：固定使用 RSA-OAEP + SHA1（低层 API 默认）
   std::vector<unsigned char> encrypt(const std::vector<unsigned char>& plaintext) const;
 
   // 验证签名：固定使用 RSA-PSS + hash_alg
@@ -61,19 +68,25 @@ class private_key
 {
  public:
   explicit private_key(rsa::bits bits = rsa::bits::RSA_2048, const std::string& password = "");
+
   explicit private_key(const std::string& pem, const std::string& password = "");
+
   explicit private_key(std::istream& is, const std::string& password = "");
+
   ~private_key();
 
-  // 解密：固定使用 RSA-OAEP（内部 hash 算法固定为 OpenSSL 默认）
+  // 解密：固定使用 RSA-OAEP
   std::vector<unsigned char> decrypt(const std::vector<unsigned char>& ciphertext) const;
 
   // 签名：固定使用 RSA-PSS + hash_alg
   std::vector<unsigned char> sign(const std::vector<unsigned char>& message,
                                   rsa::hash hash_alg = rsa::hash::SHA256) const;
 
-  std::string pem() const;         // 导出私钥 PEM，可加密
-  std::string public_pem() const;  // 导出公钥 PEM
+  // 导出私钥 PEM
+  std::string pem(pem_format fmt = pem_format::PKCS8, bool encrypt = false) const;
+
+  // 导出对应公钥 PEM
+  std::string public_pem() const;
 
   public_key get_public() const;
 
