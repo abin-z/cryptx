@@ -37,4 +37,4 @@ endif()
 
 # 添加子目录
 add_subdirectory(main)
-# add_subdirectory(test)
+add_subdirectory(cryptx)
