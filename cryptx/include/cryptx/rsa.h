@@ -22,13 +22,7 @@ enum class bits
   RSA_4096 = 4096
 };
 
-enum class padding
-{
-  PKCS1,
-  OAEP,
-  PSS
-};
-
+// hash 枚举保留，仅用于签名/验签时的 PSS 签名算法
 enum class hash
 {
   SHA256,
@@ -49,11 +43,12 @@ class public_key
   explicit public_key(std::istream& is);
   ~public_key();
 
-  std::vector<unsigned char> encrypt(const std::vector<unsigned char>& plaintext,
-                                     rsa::padding pad = rsa::padding::OAEP) const;
+  // 加密：固定使用 RSA-OAEP（内部 hash 算法固定为 OpenSSL 默认）
+  std::vector<unsigned char> encrypt(const std::vector<unsigned char>& plaintext) const;
 
+  // 验证签名：固定使用 RSA-PSS + hash_alg
   bool verify(const std::vector<unsigned char>& message, const std::vector<unsigned char>& signature,
-              rsa::padding pad = rsa::padding::PSS, rsa::hash hash_alg = rsa::hash::SHA256) const;
+              rsa::hash hash_alg = rsa::hash::SHA256) const;
 
   std::string pem() const;
 
@@ -66,21 +61,19 @@ class private_key
 {
  public:
   explicit private_key(rsa::bits bits = rsa::bits::RSA_2048, const std::string& password = "");
-
   explicit private_key(const std::string& pem, const std::string& password = "");
-
   explicit private_key(std::istream& is, const std::string& password = "");
-
   ~private_key();
 
-  std::vector<unsigned char> decrypt(const std::vector<unsigned char>& ciphertext,
-                                     rsa::padding pad = rsa::padding::OAEP) const;
+  // 解密：固定使用 RSA-OAEP（内部 hash 算法固定为 OpenSSL 默认）
+  std::vector<unsigned char> decrypt(const std::vector<unsigned char>& ciphertext) const;
 
-  std::vector<unsigned char> sign(const std::vector<unsigned char>& message, rsa::padding pad = rsa::padding::PSS,
+  // 签名：固定使用 RSA-PSS + hash_alg
+  std::vector<unsigned char> sign(const std::vector<unsigned char>& message,
                                   rsa::hash hash_alg = rsa::hash::SHA256) const;
 
   std::string pem() const;         // 导出私钥 PEM，可加密
-  std::string public_pem() const;  // 导出对应公钥 PEM
+  std::string public_pem() const;  // 导出公钥 PEM
 
   public_key get_public() const;
 

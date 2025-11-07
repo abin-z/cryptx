@@ -39,24 +39,16 @@ public_key::~public_key()
   if (rsa_) RSA_free(rsa_);
 }
 
-// 简单实现 encrypt，使用 OAEP / PKCS1 填充
-std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext, rsa::padding pad) const
+// 固定使用 RSA-OAEP（内部默认 SHA1）
+std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
 
   int rsa_size = RSA_size(rsa_);
   std::vector<unsigned char> out(rsa_size);
 
-  int len = -1;
-  if (pad == padding::OAEP)
-  {
-    len = RSA_public_encrypt(static_cast<int>(plaintext.size()), plaintext.data(), out.data(), rsa_,
-                             RSA_PKCS1_OAEP_PADDING);
-  }
-  else
-  {
-    len = RSA_public_encrypt(static_cast<int>(plaintext.size()), plaintext.data(), out.data(), rsa_, RSA_PKCS1_PADDING);
-  }
+  int len =
+    RSA_public_encrypt(static_cast<int>(plaintext.size()), plaintext.data(), out.data(), rsa_, RSA_PKCS1_OAEP_PADDING);
 
   if (len < 0) throw rsa_exception("RSA encryption failed");
 
@@ -65,7 +57,7 @@ std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>&
 }
 
 bool public_key::verify(const std::vector<unsigned char>& message, const std::vector<unsigned char>& signature,
-                        rsa::padding pad, rsa::hash hash_alg) const
+                        rsa::hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
 
@@ -87,15 +79,12 @@ bool public_key::verify(const std::vector<unsigned char>& message, const std::ve
   }
 
   bool ok = false;
-  if (EVP_DigestVerifyInit(ctx, nullptr, md, nullptr, pkey) == 1)
+  EVP_PKEY_CTX* pkctx = nullptr;
+  if (EVP_DigestVerifyInit(ctx, &pkctx, md, nullptr, pkey) == 1)
   {
-    if (pad == padding::PSS)
-    {
-      EVP_PKEY_CTX* pkctx = nullptr;
-      EVP_DigestVerifyInit(ctx, &pkctx, md, nullptr, pkey);
-      EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING);
-      EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1);
-    }
+    EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING);
+    EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1);
+
     if (EVP_DigestVerifyUpdate(ctx, message.data(), message.size()) == 1)
     {
       if (EVP_DigestVerifyFinal(ctx, signature.data(), signature.size()) == 1)
@@ -175,24 +164,16 @@ private_key::~private_key()
   if (rsa_) RSA_free(rsa_);
 }
 
-std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext, rsa::padding pad) const
+// 固定使用 RSA-OAEP（内部默认 SHA1）
+std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
   int rsa_size = RSA_size(rsa_);
   std::vector<unsigned char> out(rsa_size);
 
-  int len = -1;
-  if (pad == padding::OAEP)
-  {
-    len = RSA_private_decrypt(static_cast<int>(ciphertext.size()), ciphertext.data(), out.data(), rsa_,
-                              RSA_PKCS1_OAEP_PADDING);
-  }
-  else
-  {
-    len =
-      RSA_private_decrypt(static_cast<int>(ciphertext.size()), ciphertext.data(), out.data(), rsa_, RSA_PKCS1_PADDING);
-  }
+  int len = RSA_private_decrypt(static_cast<int>(ciphertext.size()), ciphertext.data(), out.data(), rsa_,
+                                RSA_PKCS1_OAEP_PADDING);
 
   if (len < 0) throw rsa_exception("RSA decryption failed");
 
@@ -200,8 +181,7 @@ std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>
   return out;
 }
 
-std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& message, rsa::padding pad,
-                                             rsa::hash hash_alg) const
+std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& message, rsa::hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
@@ -225,20 +205,16 @@ std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& m
   std::vector<unsigned char> sig(EVP_PKEY_size(pkey));
   size_t sig_len = sig.size();
 
-  if (EVP_DigestSignInit(ctx, nullptr, md, nullptr, pkey) != 1)
+  EVP_PKEY_CTX* pkctx = nullptr;
+  if (EVP_DigestSignInit(ctx, &pkctx, md, nullptr, pkey) != 1)
   {
     EVP_MD_CTX_free(ctx);
     EVP_PKEY_free(pkey);
     throw rsa_exception("DigestSignInit failed");
   }
 
-  if (pad == padding::PSS)
-  {
-    EVP_PKEY_CTX* pkctx = EVP_PKEY_CTX_new(pkey, nullptr);
-    EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING);
-    EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1);
-    EVP_PKEY_CTX_free(pkctx);
-  }
+  EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING);
+  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1);
 
   if (EVP_DigestSignUpdate(ctx, message.data(), message.size()) != 1 ||
       EVP_DigestSignFinal(ctx, sig.data(), &sig_len) != 1)
@@ -277,8 +253,7 @@ std::string private_key::pem() const
 
 std::string private_key::public_pem() const
 {
-  public_key pub = get_public();
-  return pub.pem();
+  return get_public().pem();
 }
 
 public_key private_key::get_public() const
@@ -288,16 +263,16 @@ public_key private_key::get_public() const
   RSA* rsa_pub = RSAPublicKey_dup(rsa_);
   if (!rsa_pub) throw rsa_exception("Failed to duplicate RSA public key");
 
-  return public_key([rsa_pub]() {
-    BIO* bio = BIO_new(BIO_s_mem());
-    PEM_write_bio_RSA_PUBKEY(bio, rsa_pub);
-    char* data = nullptr;
-    long len = BIO_get_mem_data(bio, &data);
-    std::string pem(data, len);
-    BIO_free(bio);
-    RSA_free(rsa_pub);
-    return pem;
-  }());
+  BIO* bio = BIO_new(BIO_s_mem());
+  PEM_write_bio_RSA_PUBKEY(bio, rsa_pub);
+  RSA_free(rsa_pub);
+
+  char* data = nullptr;
+  long len = BIO_get_mem_data(bio, &data);
+  std::string pem(data, len);
+  BIO_free(bio);
+
+  return public_key(pem);
 }
 
 void private_key::set_password(const std::string& password)
