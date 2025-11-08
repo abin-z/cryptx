@@ -34,6 +34,12 @@ const EVP_MD* get_oaep_md(cryptx::rsa::oaep_hash hash_alg)
     throw cryptx::rsa::rsa_exception("Unsupported OAEP hash algorithm");
   }
 }
+inline std::string read_stream(std::istream& is)
+{
+  std::ostringstream oss;
+  oss << is.rdbuf();
+  return oss.str();
+}
 }  // namespace
 
 // ------------------------ public_key ------------------------
@@ -69,14 +75,7 @@ public_key::public_key(const std::string& pem)
   if (!rsa_) throw rsa_exception("Failed to load RSA public key");
 }
 
-public_key::public_key(std::istream& is) :
-  public_key([&]() {
-    std::ostringstream oss;
-    oss << is.rdbuf();
-    return oss.str();
-  }())
-{
-}
+public_key::public_key(std::istream& is) : public_key(read_stream(is)) {}
 
 // 公钥加密(RSA-OAEP) OAEP 使用的哈希算法(SHA1/SHA256/SHA512)
 std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext, oaep_hash hash_alg) const
@@ -203,16 +202,7 @@ private_key::private_key(const std::string& pem, const std::string& password) : 
   if (!rsa_) throw rsa_exception("Failed to load RSA private key");
 }
 
-private_key::private_key(std::istream& is, const std::string& password) :
-  private_key(
-    [&]() {
-      std::ostringstream oss;
-      oss << is.rdbuf();
-      return oss.str();
-    }(),
-    password)
-{
-}
+private_key::private_key(std::istream& is, const std::string& password) : private_key(read_stream(is), password) {}
 
 // 私钥解密 OAEP
 std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>& ciphertext, oaep_hash hash_alg) const
