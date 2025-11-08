@@ -153,40 +153,32 @@ bool public_key::verify(const std::vector<unsigned char>& message, const std::ve
 
   const EVP_MD* md = (hash_alg == hash::SHA512) ? EVP_sha512() : EVP_sha256();
 
-  EVP_PKEY* pkey = EVP_PKEY_new();
+  std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> pkey(EVP_PKEY_new(), &EVP_PKEY_free);
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_set1_RSA failed");
-  }
+  if (EVP_PKEY_set1_RSA(pkey.get(), rsa_.get()) != 1) throw rsa_exception("EVP_PKEY_set1_RSA failed");
 
-  EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-  if (!ctx)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_MD_CTX allocation failed");
-  }
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+  if (!ctx) throw rsa_exception("EVP_MD_CTX allocation failed");
 
-  bool ok = false;
   EVP_PKEY_CTX* pkctx = nullptr;
-  if (EVP_DigestVerifyInit(ctx, &pkctx, md, nullptr, pkey) == 1)
-  {
-    EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING);
-    EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1);
+  if (EVP_DigestVerifyInit(ctx.get(), &pkctx, md, nullptr, pkey.get()) != 1)
+    throw rsa_exception("EVP_DigestVerifyInit failed");
 
-    if (EVP_DigestVerifyUpdate(ctx, message.data(), message.size()) == 1)
-    {
-      if (EVP_DigestVerifyFinal(ctx, signature.data(), signature.size()) == 1)
-      {
-        ok = true;
-      }
-    }
-  }
+  if (EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING) <= 0)
+    throw rsa_exception("Failed to set RSA PSS padding");
+  if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1) <= 0) throw rsa_exception("Failed to set RSA PSS salt length");
 
-  EVP_MD_CTX_free(ctx);
-  EVP_PKEY_free(pkey);
-  return ok;
+  if (EVP_DigestVerifyUpdate(ctx.get(), message.data(), message.size()) != 1)
+    throw rsa_exception("EVP_DigestVerifyUpdate failed");
+
+  // 返回值为 1 表示验签通过，0 表示签名不匹配，其他表示错误
+  int rc = EVP_DigestVerifyFinal(ctx.get(), signature.data(), signature.size());
+  if (rc == 1)
+    return true;
+  else if (rc == 0)
+    return false;  // 签名不匹配（非异常）
+  else
+    throw rsa_exception("EVP_DigestVerifyFinal failed");
 }
 
 std::string public_key::pem() const
@@ -253,63 +245,34 @@ std::vector<unsigned char> private_key::decrypt(const std::vector<unsigned char>
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
-  EVP_PKEY* pkey = EVP_PKEY_new();
+  std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> pkey(EVP_PKEY_new(), &EVP_PKEY_free);
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_set1_RSA failed");
-  }
+  if (EVP_PKEY_set1_RSA(pkey.get(), rsa_.get()) != 1) throw rsa_exception("EVP_PKEY_set1_RSA failed");
 
-  EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
-  if (!ctx)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_CTX allocation failed");
-  }
+  std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> ctx(EVP_PKEY_CTX_new(pkey.get(), nullptr),
+                                                                  &EVP_PKEY_CTX_free);
+  if (!ctx) throw rsa_exception("EVP_PKEY_CTX allocation failed");
 
-  if (EVP_PKEY_decrypt_init(ctx) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_decrypt_init failed");
-  }
+  if (EVP_PKEY_decrypt_init(ctx.get()) <= 0) throw rsa_exception("EVP_PKEY_decrypt_init failed");
 
-  if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) <= 0)
     throw rsa_exception("Failed to set OAEP padding");
-  }
 
   const EVP_MD* md = get_oaep_md(hash_alg);
+  if (!md) throw rsa_exception("Invalid OAEP hash algorithm");
 
-  if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0 || EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx.get(), md) <= 0 || EVP_PKEY_CTX_set_rsa_mgf1_md(ctx.get(), md) <= 0)
     throw rsa_exception("Failed to set OAEP hash");
-  }
 
   size_t outlen = 0;
-  if (EVP_PKEY_decrypt(ctx, nullptr, &outlen, ciphertext.data(), ciphertext.size()) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_decrypt(ctx.get(), nullptr, &outlen, ciphertext.data(), ciphertext.size()) <= 0)
     throw rsa_exception("EVP_PKEY_decrypt size query failed");
-  }
 
   std::vector<unsigned char> out(outlen);
-  if (EVP_PKEY_decrypt(ctx, out.data(), &outlen, ciphertext.data(), ciphertext.size()) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_decrypt(ctx.get(), out.data(), &outlen, ciphertext.data(), ciphertext.size()) <= 0)
     throw rsa_exception("EVP_PKEY_decrypt failed");
-  }
-  out.resize(outlen);
 
-  EVP_PKEY_CTX_free(ctx);
-  EVP_PKEY_free(pkey);
+  out.resize(outlen);
   return out;
 }
 
