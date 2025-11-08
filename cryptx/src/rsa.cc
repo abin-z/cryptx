@@ -369,48 +369,31 @@ std::string private_key::pem(pem_format fmt) const
 {
   if (!rsa_) throw rsa_exception("RSA private key not initialized");
 
-  BIO* bio = BIO_new(BIO_s_mem());
+  std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new(BIO_s_mem()), &BIO_free);
   if (!bio) throw rsa_exception("BIO allocation failed");
+
+  const EVP_CIPHER* cipher = password_.empty() ? nullptr : EVP_aes_256_cbc();
+  void* pwd = password_.empty() ? nullptr : (void*)password_.c_str();
 
   if (fmt == pem_format::PKCS1)
   {
-    if (!PEM_write_bio_RSAPrivateKey(bio, rsa_.get(), password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0,
-                                     nullptr, password_.empty() ? nullptr : (void*)password_.c_str()))
-    {
-      BIO_free(bio);
+    if (!PEM_write_bio_RSAPrivateKey(bio.get(), rsa_.get(), cipher, nullptr, 0, nullptr, pwd))
       throw rsa_exception("Failed to write PKCS1 private key PEM");
-    }
   }
   else  // PKCS8
   {
-    EVP_PKEY* pkey = EVP_PKEY_new();
-    if (!pkey)
-    {
-      BIO_free(bio);
-      throw rsa_exception("EVP_PKEY allocation failed");
-    }
-    if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
-    {
-      EVP_PKEY_free(pkey);
-      BIO_free(bio);
-      throw rsa_exception("EVP_PKEY_set1_RSA failed");
-    }
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> pkey(EVP_PKEY_new(), &EVP_PKEY_free);
+    if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
 
-    if (!PEM_write_bio_PrivateKey(bio, pkey, password_.empty() ? nullptr : EVP_aes_256_cbc(), nullptr, 0, nullptr,
-                                  password_.empty() ? nullptr : (void*)password_.c_str()))
-    {
-      EVP_PKEY_free(pkey);
-      BIO_free(bio);
+    if (EVP_PKEY_set1_RSA(pkey.get(), rsa_.get()) != 1) throw rsa_exception("EVP_PKEY_set1_RSA failed");
+
+    if (!PEM_write_bio_PrivateKey(bio.get(), pkey.get(), cipher, nullptr, 0, nullptr, pwd))
       throw rsa_exception("Failed to write PKCS8 private key PEM");
-    }
-    EVP_PKEY_free(pkey);
   }
 
   char* data = nullptr;
-  long len = BIO_get_mem_data(bio, &data);
-  std::string pem_str(data, len);
-  BIO_free(bio);
-  return pem_str;
+  long len = BIO_get_mem_data(bio.get(), &data);
+  return std::string(data, len);
 }
 
 std::string private_key::public_pem() const
