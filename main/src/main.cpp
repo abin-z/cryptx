@@ -3,7 +3,32 @@
 #include <string>
 #include <vector>
 
+#include "cryptx/hash.h"
 #include "cryptx/rsa.h"
+
+void test_hash()
+{
+  using namespace cryptx::hash;
+
+  std::string data = "Hello, CryptX Hash!";
+
+  std::vector<alg> algs = {alg::MD5, alg::SHA1, alg::SHA224, alg::SHA256, alg::SHA384, alg::SHA512};
+
+  std::cout << "=== String Hash Test ===\n";
+  for (auto a : algs)
+  {
+    // 一次性计算
+    std::string hex = compute(data, a);
+    std::cout << "Algorithm " << static_cast<int>(a) << ": " << hex << "\n";
+
+    // 分块更新
+    hasher h(a);
+    h.update(data.data(), 5)                        // 前5个字符
+      .update(data.data() + 5, 7)                   // 中间7个字符
+      .update(data.data() + 12, data.size() - 12);  // 剩余
+    std::cout << "Algorithm " << static_cast<int>(a) << " (chunked): " << h.final_hex() << "\n\n";
+  }
+}
 
 void test_rsa_password_protection()
 {
@@ -102,6 +127,7 @@ int main()
   }
 
   test_rsa_password_protection();
+  test_hash();
 
   return 0;
 }
