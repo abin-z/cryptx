@@ -78,12 +78,7 @@ public_key::public_key(std::istream& is) :
 {
 }
 
-/*
- * 公钥加密（RSA-OAEP）
- * @param plaintext 原始明文数据
- * @param hash_alg  OAEP 使用的哈希算法（SHA1/SHA256/SHA512）
- * @return 加密后的密文数据
- */
+// 公钥加密(RSA-OAEP) OAEP 使用的哈希算法(SHA1/SHA256/SHA512)
 std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext, oaep_hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
