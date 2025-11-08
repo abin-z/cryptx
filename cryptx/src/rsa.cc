@@ -320,46 +320,36 @@ std::vector<unsigned char> private_key::sign(const std::vector<unsigned char>& m
 
   const EVP_MD* md = (hash_alg == hash::SHA512) ? EVP_sha512() : EVP_sha256();
 
-  EVP_PKEY* pkey = EVP_PKEY_new();
+  // --- 智能指针包装 OpenSSL 资源 ---
+  auto pkey = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>(EVP_PKEY_new(), EVP_PKEY_free);
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_set1_RSA failed");
-  }
 
-  EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-  if (!ctx)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_MD_CTX allocation failed");
-  }
+  if (EVP_PKEY_set1_RSA(pkey.get(), rsa_.get()) != 1) throw rsa_exception("EVP_PKEY_set1_RSA failed");
 
-  std::vector<unsigned char> sig(EVP_PKEY_size(pkey));
-  size_t sig_len = sig.size();
+  auto ctx = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+  if (!ctx) throw rsa_exception("EVP_MD_CTX allocation failed");
 
   EVP_PKEY_CTX* pkctx = nullptr;
-  if (EVP_DigestSignInit(ctx, &pkctx, md, nullptr, pkey) != 1)
-  {
-    EVP_MD_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("DigestSignInit failed");
-  }
+  if (EVP_DigestSignInit(ctx.get(), &pkctx, md, nullptr, pkey.get()) != 1)
+    throw rsa_exception("EVP_DigestSignInit failed");
 
-  EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING);
-  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1);
+  if (EVP_PKEY_CTX_set_rsa_padding(pkctx, RSA_PKCS1_PSS_PADDING) <= 0)
+    throw rsa_exception("EVP_PKEY_CTX_set_rsa_padding failed");
 
-  if (EVP_DigestSignUpdate(ctx, message.data(), message.size()) != 1 ||
-      EVP_DigestSignFinal(ctx, sig.data(), &sig_len) != 1)
-  {
-    EVP_MD_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("Sign failed");
-  }
+  if (EVP_PKEY_CTX_set_rsa_pss_saltlen(pkctx, -1) <= 0) throw rsa_exception("EVP_PKEY_CTX_set_rsa_pss_saltlen failed");
+
+  if (EVP_DigestSignUpdate(ctx.get(), message.data(), message.size()) != 1)
+    throw rsa_exception("EVP_DigestSignUpdate failed");
+
+  // 获取签名长度
+  size_t sig_len = 0;
+  if (EVP_DigestSignFinal(ctx.get(), nullptr, &sig_len) != 1)
+    throw rsa_exception("EVP_DigestSignFinal (size query) failed");
+
+  std::vector<unsigned char> sig(sig_len);
+  if (EVP_DigestSignFinal(ctx.get(), sig.data(), &sig_len) != 1) throw rsa_exception("EVP_DigestSignFinal failed");
 
   sig.resize(sig_len);
-  EVP_MD_CTX_free(ctx);
-  EVP_PKEY_free(pkey);
   return sig;
 }
 
