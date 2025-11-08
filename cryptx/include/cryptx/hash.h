@@ -1,5 +1,10 @@
 #pragma once
 
+// 定义宏，让高版本 OpenSSL 不触发弃用警告
+#ifndef OPENSSL_SUPPRESS_DEPRECATED
+#define OPENSSL_SUPPRESS_DEPRECATED
+#endif
+
 #include <openssl/md5.h>
 #include <openssl/sha.h>
 
