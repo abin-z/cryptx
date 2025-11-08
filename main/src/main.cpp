@@ -12,17 +12,17 @@ void test_hash()
 
   std::string data = "Hello, CryptX Hash!";
 
-  std::vector<alg> algs = {alg::MD5, alg::SHA1, alg::SHA224, alg::SHA256, alg::SHA384, alg::SHA512};
+  std::vector<cryptx::hash::alg> algs = {alg::MD5, alg::SHA1, alg::SHA224, alg::SHA256, alg::SHA384, alg::SHA512};
 
   std::cout << "=== String Hash Test ===\n";
   for (auto a : algs)
   {
     // 一次性计算
-    std::string hex = compute(data, a);
+    std::string hex = cryptx::hash::compute(data, a);
     std::cout << "Algorithm " << static_cast<int>(a) << ": " << hex << "\n";
 
     // 分块更新
-    hasher h(a);
+    cryptx::hash::hasher h(a);
     h.update(data.data(), 5)                        // 前5个字符
       .update(data.data() + 5, 7)                   // 中间7个字符
       .update(data.data() + 12, data.size() - 12);  // 剩余
