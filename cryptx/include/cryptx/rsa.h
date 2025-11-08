@@ -1,3 +1,9 @@
+/**
+ * @description: RSA 非对称加密算法封装
+ * @author: abin
+ * @date: 2025-11-07
+ */
+
 #pragma once
 
 // 定义宏，让高版本 OpenSSL 不触发弃用警告

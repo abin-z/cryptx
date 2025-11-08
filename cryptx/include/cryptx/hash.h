@@ -1,3 +1,9 @@
+/**
+ * @description: 常用hash算法封装
+ * @author: abin
+ * @date: 2025-11-08
+ */
+
 #pragma once
 
 // 定义宏，让高版本 OpenSSL 不触发弃用警告
