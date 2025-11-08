@@ -78,70 +78,49 @@ public_key::public_key(std::istream& is) :
 {
 }
 
-// 公钥加密 OAEP，可选 hash
+/*
+ * 公钥加密（RSA-OAEP）
+ * @param plaintext 原始明文数据
+ * @param hash_alg  OAEP 使用的哈希算法（SHA1/SHA256/SHA512）
+ * @return 加密后的密文数据
+ */
 std::vector<unsigned char> public_key::encrypt(const std::vector<unsigned char>& plaintext, oaep_hash hash_alg) const
 {
   if (!rsa_) throw rsa_exception("RSA public key not initialized");
 
-  EVP_PKEY* pkey = EVP_PKEY_new();
+  // 使用智能指针管理 EVP_PKEY（自动释放，防止内存泄漏）
+  std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> pkey(EVP_PKEY_new(), &EVP_PKEY_free);
   if (!pkey) throw rsa_exception("EVP_PKEY allocation failed");
-  if (EVP_PKEY_set1_RSA(pkey, rsa_.get()) != 1)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_set1_RSA failed");
-  }
 
-  EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
-  if (!ctx)
-  {
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_CTX allocation failed");
-  }
+  if (EVP_PKEY_set1_RSA(pkey.get(), rsa_.get()) != 1) throw rsa_exception("EVP_PKEY_set1_RSA failed");
 
-  if (EVP_PKEY_encrypt_init(ctx) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    throw rsa_exception("EVP_PKEY_encrypt_init failed");
-  }
+  // 创建上下文（同样用智能指针管理，异常安全）
+  std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> ctx(EVP_PKEY_CTX_new(pkey.get(), nullptr),
+                                                                  &EVP_PKEY_CTX_free);
+  if (!ctx) throw rsa_exception("EVP_PKEY_CTX allocation failed");
 
-  // 设置 OAEP padding
-  if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_encrypt_init(ctx.get()) <= 0) throw rsa_exception("EVP_PKEY_encrypt_init failed");
+
+  // 设置 OAEP 填充模式
+  if (EVP_PKEY_CTX_set_rsa_padding(ctx.get(), RSA_PKCS1_OAEP_PADDING) <= 0)
     throw rsa_exception("Failed to set OAEP padding");
-  }
 
-  // 设置 OAEP hash
+  // 设置 OAEP 哈希函数（包括主哈希与 MGF1 哈希）
   const EVP_MD* md = get_oaep_md(hash_alg);
-
-  if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0 || EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx.get(), md) <= 0 || EVP_PKEY_CTX_set_rsa_mgf1_md(ctx.get(), md) <= 0)
     throw rsa_exception("Failed to set OAEP hash");
-  }
 
+  // 先计算输出长度
   size_t outlen = 0;
-  if (EVP_PKEY_encrypt(ctx, nullptr, &outlen, plaintext.data(), plaintext.size()) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_encrypt(ctx.get(), nullptr, &outlen, plaintext.data(), plaintext.size()) <= 0)
     throw rsa_exception("EVP_PKEY_encrypt size query failed");
-  }
 
+  // 执行加密
   std::vector<unsigned char> out(outlen);
-  if (EVP_PKEY_encrypt(ctx, out.data(), &outlen, plaintext.data(), plaintext.size()) <= 0)
-  {
-    EVP_PKEY_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
+  if (EVP_PKEY_encrypt(ctx.get(), out.data(), &outlen, plaintext.data(), plaintext.size()) <= 0)
     throw rsa_exception("EVP_PKEY_encrypt failed");
-  }
-  out.resize(outlen);
 
-  EVP_PKEY_CTX_free(ctx);
-  EVP_PKEY_free(pkey);
+  out.resize(outlen);  // 截取实际加密长度
   return out;
 }
 
