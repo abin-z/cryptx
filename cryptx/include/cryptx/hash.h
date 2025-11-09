@@ -1,17 +1,16 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Abin
+
 /**
  * @file hash.h
- * @description: 常用 hash 算法封装（MD5、SHA1、SHA224、SHA256、SHA384、SHA512）
- *               提供分块更新和一次性计算接口
+ * @brief: 常用 hash 算法封装(MD5、SHA1、SHA224、SHA256、SHA384、SHA512)
  * @author: abin
  * @date: 2025-11-08
- * @copyright Copyright (c) 2025 Abin. All rights reserved.
  */
 
 #pragma once
 
-// ----------------------------
 // 定义宏，让高版本 OpenSSL 不触发弃用警告
-// ----------------------------
 #ifndef OPENSSL_SUPPRESS_DEPRECATED
 #define OPENSSL_SUPPRESS_DEPRECATED
 #endif
