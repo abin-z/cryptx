@@ -8,6 +8,9 @@ namespace aes
 cipher::cipher(const options& opts, bool encrypt) : opts_(opts), encrypt_(encrypt)
 {
   if (opts_.key.empty()) throw aes_exception("AES key must not be empty");
+  // 检查 key 长度是否和 key_bits 匹配
+  if (opts_.key.size() != static_cast<std::size_t>(opts_.key_bits))
+    throw aes_exception("AES key length mismatch with key_bits");
   if (opts_.iv.empty() && opts_.cipher_mode != mode::CTR && opts_.cipher_mode != mode::OFB &&
       opts_.cipher_mode != mode::CFB)
     throw aes_exception("IV must be provided for this AES mode");
