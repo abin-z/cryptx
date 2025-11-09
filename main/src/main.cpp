@@ -1,10 +1,62 @@
 #include <cassert>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
 
+#include "cryptx/aes.h"
 #include "cryptx/hash.h"
 #include "cryptx/rsa.h"
+
+// 工具函数：打印 vector 为 hex
+void print_hex(const std::vector<uint8_t>& data)
+{
+  for (auto b : data) std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)b;
+  std::cout << std::dec << std::endl;
+}
+
+// TODO 还有问题：测试 AES 加解密
+void test_aes()
+{
+  using namespace cryptx::aes;
+
+  try
+  {
+    auto key = cipher::random_key(key_len::AES_256);
+    auto iv = cipher::random_iv();
+
+    options opts;
+    opts.cipher_mode = mode::CBC;
+    opts.pad_mode = padding_mode::PKCS7;
+    opts.key_bits = key_len::AES_256;
+    opts.key = key;
+    opts.iv = iv;
+
+    std::string text = "hello abin, this is AES CBC test!";
+    std::vector<uint8_t> input(text.begin(), text.end());
+
+    auto encrypted = cipher::encrypt(input, opts);
+    auto decrypted = cipher::decrypt(encrypted, opts);
+
+    std::string plain(decrypted.begin(), decrypted.end());
+
+    std::cout << "AES CBC Test OK ✅\n";
+    std::cout << "Plaintext: " << text << "\n";
+    std::cout << "Encrypted(hex): " << "\n";
+    print_hex(key);
+    print_hex(iv);
+    print_hex(encrypted);
+    std::cout << "Decrypted: " << plain << "\n";
+  }
+  catch (const aes_exception& ex)
+  {
+    std::cerr << "AES error: " << ex.what() << std::endl;
+  }
+  catch (const std::exception& ex)
+  {
+    std::cerr << "General error: " << ex.what() << std::endl;
+  }
+}
 
 void test_hash()
 {
@@ -128,6 +180,7 @@ int main()
 
   test_rsa_password_protection();
   test_hash();
+  test_aes();
 
   return 0;
 }
