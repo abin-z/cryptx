@@ -54,7 +54,10 @@ enum class alg
 
 /**
  * @class hasher
- * @brief hash 计算器类，支持分块更新和最终结果获取
+ * @brief hash 计算器类
+ *
+ * 支持分块更新数据，并在最后获取摘要。
+ * 一旦调用 final_bin() 或 final_hex()，对象标记为 finalized，不可再 update。
  */
 class hasher
 {
@@ -62,6 +65,7 @@ class hasher
   /**
    * @brief 构造函数，初始化指定算法
    * @param a hash 算法类型
+   * @throw hash_exception 如果算法初始化失败
    */
   explicit hasher(hash::alg a);
 
@@ -70,6 +74,7 @@ class hasher
    * @param data 数据指针
    * @param len 数据长度
    * @return 当前 hasher 引用，支持链式调用
+   * @throw hash_exception 如果对象已 finalized
    */
   hasher& update(const void* data, std::size_t len);
 
@@ -77,6 +82,7 @@ class hasher
    * @brief 分块更新数据（vector 版本）
    * @param data 数据 vector
    * @return 当前 hasher 引用，支持链式调用
+   * @throw hash_exception 如果对象已 finalized
    */
   hasher& update(const std::vector<unsigned char>& data);
 
@@ -84,22 +90,24 @@ class hasher
    * @brief 分块更新数据（string 版本）
    * @param data 数据字符串
    * @return 当前 hasher 引用，支持链式调用
+   * @throw hash_exception 如果对象已 finalized
+   * @note 内部将字符串内容按字节处理
    */
   hasher& update(const std::string& data);
 
   /**
    * @brief 获取最终的二进制摘要
    * @return 二进制 vector
-   * @note 调用后 hasher 标记为 finalized，不能再 update
+   * @note 调用后对象标记为 finalized，不能再 update 或再次调用 final
    */
   std::vector<unsigned char> final_bin();
 
   /**
    * @brief 获取最终摘要的十六进制字符串
    * @return hex 字符串
+   * @note 调用后对象标记为 finalized，不能再 update 或再次调用 final
    */
   std::string final_hex();
-
   // 禁用拷贝
   ~hasher() = default;
   hasher(const hasher&) = delete;
