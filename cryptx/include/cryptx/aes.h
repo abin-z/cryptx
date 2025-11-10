@@ -133,7 +133,7 @@ class cipher
    * @param len 密钥长度（默认 AES_256）
    * @return 随机密钥
    */
-  static std::vector<uint8_t> random_key(key_len len = key_len::AES_256);
+  static std::vector<uint8_t> random_key(key_len len);
 
   /**
    * @brief 生成随机 IV
