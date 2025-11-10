@@ -128,34 +128,34 @@ class hasher
 /**
  * @brief 一次性计算字符串的二进制摘要
  * @param data 输入字符串
- * @param a hash 算法类型，默认 SHA256
+ * @param hash_alg hash 算法类型
  * @return 摘要 vector
  */
-std::vector<unsigned char> compute_bin(const std::string& data, hash::alg a = hash::alg::SHA256);
+std::vector<unsigned char> compute_bin(const std::string& data, hash::alg hash_alg);
 
 /**
  * @brief 一次性计算字符串的 hex 摘要
  * @param data 输入字符串
- * @param a hash 算法类型，默认 SHA256
+ * @param hash_alg hash 算法类型
  * @return 十六进制字符串
  */
-std::string compute(const std::string& data, hash::alg a = hash::alg::SHA256);
+std::string compute(const std::string& data, hash::alg hash_alg);
 
 /**
  * @brief 一次性计算文件的二进制摘要
  * @param filepath 文件路径
- * @param a hash 算法类型，默认 SHA256
+ * @param hash_alg hash 算法类型
  * @return 摘要 vector
  */
-std::vector<unsigned char> compute_file_bin(const std::string& filepath, hash::alg a = hash::alg::SHA256);
+std::vector<unsigned char> compute_file_bin(const std::string& filepath, hash::alg hash_alg);
 
 /**
  * @brief 一次性计算文件的 hex 摘要
  * @param filepath 文件路径
- * @param a hash 算法类型，默认 SHA256
+ * @param hash_alg hash 算法类型
  * @return 十六进制字符串
  */
-std::string compute_file(const std::string& filepath, hash::alg a = hash::alg::SHA256);
+std::string compute_file(const std::string& filepath, hash::alg hash_alg);
 
 }  // namespace hash
 }  // namespace cryptx
