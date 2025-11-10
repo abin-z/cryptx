@@ -15,7 +15,6 @@ void print_hex(const std::vector<uint8_t>& data)
   std::cout << std::dec << std::endl;
 }
 
-// TODO 还有问题：测试 AES 加解密
 void test_aes()
 {
   using namespace cryptx::aes;
