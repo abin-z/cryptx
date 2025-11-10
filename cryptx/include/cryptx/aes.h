@@ -67,6 +67,12 @@ struct options
   key_len key_bits = key_len::AES_256;          ///< 密钥长度
   std::vector<uint8_t> key;                     ///< 密钥，长度必须与 key_bits 匹配
   std::vector<uint8_t> iv;                      ///< 初始向量，长度固定 16 字节
+
+  options() = default;
+  options(mode m, padding_mode pad, key_len bits, std::vector<uint8_t> k, std::vector<uint8_t> i) :
+    cipher_mode(m), pad_mode(pad), key_bits(bits), key(std::move(k)), iv(std::move(i))
+  {
+  }
 };
 
 // ----------------------------
