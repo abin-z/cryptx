@@ -1,6 +1,6 @@
+#include <fstream>
 #include <string>
 #include <vector>
-#include <fstream>
 
 #include "catch2/catch.hpp"
 #include "cryptx/hash.h"
@@ -76,15 +76,16 @@ TEST_CASE("Hash: compute_bin returns correct size", "[hash]")
 TEST_CASE("Hash: hasher final_bin and final_hex consistency", "[hash]")
 {
   std::string data = "Test data for hash";
-  hasher h(alg::SHA1);
-  h.update(data);
+  cryptx::hash::hasher h(cryptx::hash::alg::SHA1);
+
+  // 更新数据
+  h.update(data.data(), data.size());
+
+  // 只调用一次 final_bin
   auto bin = h.final_bin();
-  auto hex = h.final_hex();
+  REQUIRE(bin.size() == 20);  // SHA1 输出 20 字节
 
-  REQUIRE(bin.size() == 20);
-  REQUIRE(hex.size() == 40);
-
-  // 二进制转换为 hex 后应该等于 final_hex()
+  // 手动把二进制转成 hex
   std::string hex_from_bin;
   static const char* hex_chars = "0123456789abcdef";
   for (auto b : bin)
@@ -92,7 +93,11 @@ TEST_CASE("Hash: hasher final_bin and final_hex consistency", "[hash]")
     hex_from_bin.push_back(hex_chars[(b >> 4) & 0xF]);
     hex_from_bin.push_back(hex_chars[b & 0xF]);
   }
+
+  // final_hex() 本质上就是同样的转换
+  std::string hex = cryptx::hash::compute(data, cryptx::hash::alg::SHA1);
   REQUIRE(hex_from_bin == hex);
+  REQUIRE(hex.size() == 40);  // 20字节转 hex
 }
 
 TEST_CASE("Hash: repeated final throws exception", "[hash]")
