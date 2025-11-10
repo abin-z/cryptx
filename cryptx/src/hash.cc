@@ -180,6 +180,11 @@ hasher& hasher::update(const std::vector<unsigned char>& data)
   return update(data.data(), data.size());
 }
 
+hasher& hasher::update(const std::string& data)
+{
+  return update(data.data(), data.size());
+}
+
 std::size_t hasher::digest_length() const
 {
   switch (alg_)
