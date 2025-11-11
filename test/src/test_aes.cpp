@@ -280,3 +280,138 @@ TEST_CASE("AES encrypt/decrypt fails gracefully on wrong key", "[aes][error]")
 
   REQUIRE_THROWS(cipher::decrypt(encrypted, opts2));
 }
+
+TEST_CASE("AES encrypt/decrypt empty input", "[aes][edge]")
+{
+  auto key = cipher::random_key(key_len::AES_128);
+  auto iv = cipher::random_iv();
+  options opts(mode::CBC, padding_mode::PKCS7, key_len::AES_128, key, iv);
+
+  std::vector<uint8_t> empty;
+  auto ciphered = cipher::encrypt(empty, opts);
+  auto plain = cipher::decrypt(ciphered, opts);
+
+  REQUIRE(equal_bytes(empty, plain));
+}
+
+TEST_CASE("AES encrypt/decrypt large input (1MB)", "[aes][edge][performance]")
+{
+  auto key = cipher::random_key(key_len::AES_256);
+  auto iv = cipher::random_iv();
+  options opts(mode::CBC, padding_mode::PKCS7, key_len::AES_256, key, iv);
+
+  std::vector<uint8_t> data(1024 * 1024, 0xAB);  // 1 MB
+  auto encrypted = cipher::encrypt(data, opts);
+  auto decrypted = cipher::decrypt(encrypted, opts);
+
+  REQUIRE(equal_bytes(data, decrypted));
+}
+
+// -------------------------------------------------------
+// 重复调用测试
+// -------------------------------------------------------
+
+TEST_CASE("AES multiple consecutive encrypt/decrypt", "[aes][state]")
+{
+  auto key = cipher::random_key(key_len::AES_192);
+  auto iv = cipher::random_iv();
+  options opts(mode::CBC, padding_mode::PKCS7, key_len::AES_192, key, iv);
+
+  auto msg = to_bytes("repeated encryptions test");
+  auto c1 = cipher::encrypt(msg, opts);
+  auto c2 = cipher::encrypt(msg, opts);
+  auto d1 = cipher::decrypt(c1, opts);
+  auto d2 = cipher::decrypt(c2, opts);
+
+  REQUIRE(equal_bytes(msg, d1));
+  REQUIRE(equal_bytes(msg, d2));
+}
+
+TEST_CASE("AES calling final() twice throws exception", "[aes][finalize]")
+{
+  auto key = cipher::random_key(key_len::AES_128);
+  auto iv = cipher::random_iv();
+  options opts(mode::CBC, padding_mode::PKCS7, key_len::AES_128, key, iv);
+
+  cipher enc(opts, true);
+  auto data = to_bytes("some data block");
+  auto out1 = enc.update(data.data(), data.size());
+  auto out2 = enc.final();
+
+  REQUIRE_THROWS_AS(enc.final(), aes_exception);  // 二次 final 必须报错
+}
+
+// -------------------------------------------------------
+// 不同 key 长度测试
+// -------------------------------------------------------
+
+TEST_CASE("AES supports all key lengths (128/192/256)", "[aes][keylen]")
+{
+  std::vector<key_len> lengths = {key_len::AES_128, key_len::AES_192, key_len::AES_256};
+
+  for (auto len : lengths)
+  {
+    auto key = cipher::random_key(len);
+    auto iv = cipher::random_iv();
+
+    options opts(mode::CBC, padding_mode::PKCS7, len, key, iv);
+
+    auto msg = to_bytes("key length test");
+    auto encrypted = cipher::encrypt(msg, opts);
+    auto decrypted = cipher::decrypt(encrypted, opts);
+
+    REQUIRE(equal_bytes(msg, decrypted));
+  }
+}
+
+// -------------------------------------------------------
+// 随机性验证（非全零）
+// -------------------------------------------------------
+
+TEST_CASE("AES random key/iv are not all zero", "[aes][randomness]")
+{
+  auto key = cipher::random_key(key_len::AES_256);
+  auto iv = cipher::random_iv();
+
+  bool all_zero_key = std::all_of(key.begin(), key.end(), [](uint8_t b) { return b == 0; });
+  bool all_zero_iv = std::all_of(iv.begin(), iv.end(), [](uint8_t b) { return b == 0; });
+
+  REQUIRE_FALSE(all_zero_key);
+  REQUIRE_FALSE(all_zero_iv);
+}
+
+// -------------------------------------------------------
+// 流式处理: 跨多次 update 验证完整性
+// -------------------------------------------------------
+
+TEST_CASE("AES multi-update consistency test", "[aes][stream]")
+{
+  auto key = cipher::random_key(key_len::AES_256);
+  auto iv = cipher::random_iv();
+  options opts(mode::CBC, padding_mode::PKCS7, key_len::AES_256, key, iv);
+
+  cipher enc(opts, true);
+  cipher dec(opts, false);
+
+  std::string long_msg(4096, 'A');
+  std::vector<uint8_t> plain(long_msg.begin(), long_msg.end());
+  std::vector<uint8_t> encrypted, decrypted;
+
+  for (size_t i = 0; i < plain.size(); i += 512)
+  {
+    auto part = enc.update(&plain[i], std::min<size_t>(512, plain.size() - i));
+    encrypted.insert(encrypted.end(), part.begin(), part.end());
+  }
+  auto fin_enc = enc.final();
+  encrypted.insert(encrypted.end(), fin_enc.begin(), fin_enc.end());
+
+  for (size_t i = 0; i < encrypted.size(); i += 400)
+  {
+    auto part = dec.update(&encrypted[i], std::min<size_t>(400, encrypted.size() - i));
+    decrypted.insert(decrypted.end(), part.begin(), part.end());
+  }
+  auto fin_dec = dec.final();
+  decrypted.insert(decrypted.end(), fin_dec.begin(), fin_dec.end());
+
+  REQUIRE(equal_bytes(plain, decrypted));
+}
