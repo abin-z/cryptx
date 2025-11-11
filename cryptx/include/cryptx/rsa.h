@@ -159,7 +159,7 @@ class private_key
   ~private_key() = default;  // unique_ptr 会自动释放
 
   /**
-   * @brief 私钥解密
+   * @brief 私钥解密, 解密失败会抛出异常 rsa_exception
    * @param ciphertext 待解密数据
    * @param hash_alg OAEP 哈希算法（默认 SHA256）
    * @return 解密后的明文
