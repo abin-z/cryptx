@@ -211,3 +211,149 @@ TEST_CASE("RSA password-protected private key works", "[rsa][password]")
   std::string recovered(plain.begin(), plain.end());
   REQUIRE(recovered == msg);
 }
+
+// ----------------------------- 边界与一致性测试 -----------------------------
+TEST_CASE("RSA long message split encryption/decryption", "[rsa][large]")
+{
+  private_key pri(bits::RSA_4096);
+  auto pub = pri.get_public();
+
+  // RSA 最大明文长度 < key_bytes - 2*hLen - 2 (OAEP)
+  // 对于 4096-bit + SHA256，大约 446 bytes
+  const size_t chunk_size = 400;
+  std::string base = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  std::string msg;
+  for (int i = 0; i < 100; ++i) msg += base;  // 约 6200 字节
+
+  // 手动分块加解密
+  std::vector<unsigned char> all_encrypted;
+  for (size_t i = 0; i < msg.size(); i += chunk_size)
+  {
+    std::vector<unsigned char> chunk(msg.begin() + i, msg.begin() + std::min(msg.size(), i + chunk_size));
+    auto enc = pub.encrypt(chunk);
+    all_encrypted.insert(all_encrypted.end(), enc.begin(), enc.end());
+  }
+
+  // 逐块解密验证
+  std::vector<unsigned char> all_decrypted;
+  size_t offset = 0;
+  const size_t cipher_chunk = pub.encrypt(std::vector<unsigned char>(1, 'A')).size();
+  while (offset < all_encrypted.size())
+  {
+    std::vector<unsigned char> block(all_encrypted.begin() + offset,
+                                     all_encrypted.begin() + std::min(all_encrypted.size(), offset + cipher_chunk));
+    auto dec = pri.decrypt(block);
+    all_decrypted.insert(all_decrypted.end(), dec.begin(), dec.end());
+    offset += cipher_chunk;
+  }
+
+  REQUIRE(all_decrypted == std::vector<unsigned char>(msg.begin(), msg.end()));
+}
+
+TEST_CASE("RSA consistency between PKCS1 and PKCS8 exports", "[rsa][pem]")
+{
+  private_key pri(bits::RSA_2048);
+  pri.set_password("pass");
+  std::string pkcs1 = pri.pem(pem_format::PKCS1);
+  std::string pkcs8 = pri.pem(pem_format::PKCS8);
+
+  // 两种格式都应能重新导入并生成相同公钥
+  private_key pri1(pkcs1, "pass");
+  private_key pri2(pkcs8, "pass");
+
+  REQUIRE(pri1.public_pem() == pri2.public_pem());
+}
+
+TEST_CASE("RSA re-imported key performs identical encryption", "[rsa][consistency]")
+{
+  private_key pri(bits::RSA_2048);
+  auto pub = pri.get_public();
+
+  std::string pem = pri.pem();
+  private_key pri2(pem);
+  auto pub2 = pri2.get_public();
+
+  std::string msg = "re-import test";
+  auto bytes = to_bytes(msg);
+
+  auto c1 = pub.encrypt(bytes);
+  auto c2 = pub2.encrypt(bytes);
+
+  // 两个公钥加密结果不同（随机性），但解密结果相同
+  auto d1 = pri.decrypt(c1);
+  auto d2 = pri2.decrypt(c2);
+  REQUIRE(d1 == d2);
+}
+
+TEST_CASE("RSA public/private pair mismatch should fail", "[rsa][fail]")
+{
+  private_key pri1(bits::RSA_2048);
+  private_key pri2(bits::RSA_2048);
+
+  auto pub1 = pri1.get_public();
+  auto pub2 = pri2.get_public();
+
+  std::string msg = "key mismatch test";
+  auto bytes = to_bytes(msg);
+
+  auto cipher = pub1.encrypt(bytes);
+  REQUIRE_THROWS_AS(pri2.decrypt(cipher), rsa_exception);
+
+  auto sig = pri1.sign(bytes);
+  REQUIRE_FALSE(pub2.verify(bytes, sig));
+}
+
+TEST_CASE("RSA repeated sign/verify should be stable", "[rsa][repeat]")
+{
+  private_key pri(bits::RSA_2048);
+  auto pub = pri.get_public();
+  auto msg = to_bytes("repeat test");
+
+  auto sig1 = pri.sign(msg);
+  auto sig2 = pri.sign(msg);
+
+  // PSS 带随机盐 => 每次签名不同
+  REQUIRE(sig1 != sig2);
+  // 但都能被正确验证
+  REQUIRE(pub.verify(msg, sig1));
+  REQUIRE(pub.verify(msg, sig2));
+}
+
+TEST_CASE("RSA decrypting tampered ciphertext should throw", "[rsa][tamper]")
+{
+  private_key pri(bits::RSA_2048);
+  auto pub = pri.get_public();
+
+  std::string msg = "RSA tamper test";
+  auto cipher = pub.encrypt(to_bytes(msg));
+
+  // 修改密文任意一字节
+  cipher[cipher.size() / 2] ^= 0x55;
+
+  REQUIRE_THROWS_AS(pri.decrypt(cipher), rsa_exception);
+}
+
+TEST_CASE("RSA minimal key (1024-bit) works correctly", "[rsa][small]")
+{
+  private_key pri(bits::RSA_1024);
+  auto pub = pri.get_public();
+
+  auto msg = to_bytes("tiny key test");
+  auto enc = pub.encrypt(msg);
+  auto dec = pri.decrypt(enc);
+  REQUIRE(dec == msg);
+
+  auto sig = pri.sign(msg);
+  REQUIRE(pub.verify(msg, sig));
+}
+
+TEST_CASE("RSA large key (4096-bit) basic operations", "[rsa][largekey]")
+{
+  private_key pri(bits::RSA_4096);
+  auto pub = pri.get_public();
+
+  auto msg = to_bytes("big key test");
+  auto enc = pub.encrypt(msg);
+  auto dec = pri.decrypt(enc);
+  REQUIRE(dec == msg);
+}
