@@ -8,7 +8,8 @@
  * @date: 2025-11-09
  */
 
-#pragma once
+#ifndef __GUARD_AES_H_INCLUDE_GUARD__
+#define __GUARD_AES_H_INCLUDE_GUARD__
 
 #ifndef OPENSSL_SUPPRESS_DEPRECATED
 #define OPENSSL_SUPPRESS_DEPRECATED
@@ -161,3 +162,5 @@ class cipher
 
 }  // namespace aes
 }  // namespace cryptx
+
+#endif  // __GUARD_AES_H_INCLUDE_GUARD__

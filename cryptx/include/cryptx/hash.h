@@ -8,7 +8,8 @@
  * @date: 2025-11-08
  */
 
-#pragma once
+#ifndef __GUARD_HASH_H_INCLUDE_GUARD__
+#define __GUARD_HASH_H_INCLUDE_GUARD__
 
 // 定义宏，让高版本 OpenSSL 不触发弃用警告
 #ifndef OPENSSL_SUPPRESS_DEPRECATED
@@ -174,3 +175,5 @@ std::string compute_file(const std::string& filepath, hash::alg hash_alg);
 
 }  // namespace hash
 }  // namespace cryptx
+
+#endif  // __GUARD_HASH_H_INCLUDE_GUARD__
