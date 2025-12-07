@@ -16,6 +16,6 @@ target_include_directories(${tgt_name}  PRIVATE
 )
 
 # -------------------------------------------------------
-# （新增）告诉 CTest：这个可执行程序是一个测试
+# 告诉 CTest：这个可执行程序是一个测试
 # -------------------------------------------------------
 add_test(NAME ${tgt_name} COMMAND ${tgt_name})

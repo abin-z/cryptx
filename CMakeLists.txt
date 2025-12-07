@@ -28,7 +28,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 project(mutils LANGUAGES C CXX VERSION 0.1.0)
 
 # 启用测试功能
-include(CTest)  # 启用 CTest 框架
+include(CTest)    # 启用 CTest 框架
 enable_testing()  # 允许 add_test() 添加测试, 须放在 add_test() 之前
 
 # 仅在 Linux/macOS 上启用 pthread
