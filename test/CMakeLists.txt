@@ -2,7 +2,7 @@
 set(tgt_name utest)
 
 # 自动收集所有 cpp 文件
-file(GLOB_RECURSE SOURCES src/*.c src/*.cpp src/*.cc src/*.cxx)
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.c src/*.cpp src/*.cc src/*.cxx)
 
 add_executable(${tgt_name} ${SOURCES})
 
