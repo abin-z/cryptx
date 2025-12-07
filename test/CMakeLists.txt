@@ -14,3 +14,8 @@ target_link_libraries(${tgt_name} PRIVATE cryptx)
 target_include_directories(${tgt_name}  PRIVATE
     ${PROJECT_SOURCE_DIR}/3rd/catch2_v2/single_include
 )
+
+# -------------------------------------------------------
+# （新增）告诉 CTest：这个可执行程序是一个测试
+# -------------------------------------------------------
+add_test(NAME ${tgt_name} COMMAND ${tgt_name})
